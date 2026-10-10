@@ -276,7 +276,7 @@ class MainActivity : Activity() {
             connection = usbManager.openDevice(selected)
                 ?: throw IllegalStateException("UsbManager.openDevice() returned null")
             outputFd = createWavOutput()
-            val ownedFd = outputFd
+            val ownedFd = outputFd ?: throw IllegalStateException("Output FD missing")
             // JNI consumes/owns wavFd even when it returns a startup error.
             outputFd = null
             val error = NativeRecorder.start(connection!!.fileDescriptor, ownedFd, 48_000)

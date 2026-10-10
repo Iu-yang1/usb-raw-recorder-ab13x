@@ -37,6 +37,13 @@ jobs:
           git -C app/src/main/cpp/vendor/libuac checkout --quiet 17a6ba0a09309a6890ec338826de43a256f89813
           test -f app/src/main/cpp/vendor/libusb/android/config.h
           test -f app/src/main/cpp/vendor/libuac/include/libuac.h
+      - name: Verify start-to-record regression
+        run: |
+          set -euo pipefail
+          FILE=app/src/main/java/org/iu/radio/usbrecorder/MainActivity.kt
+          grep -q 'MediaStore.Audio.Media.RELATIVE_PATH' "$FILE"
+          grep -q 'NativeRecorder.start' "$FILE"
+          if grep -q 'ACTION_CREATE_DOCUMENT' "$FILE"; then echo 'Save As regression detected'; exit 1; fi
       - name: Build arm64 debug APK
         run: gradle --no-daemon :app:assembleDebug --stacktrace
       - name: Inspect APK contents

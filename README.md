@@ -6,7 +6,7 @@ Standalone Android/Kotlin radio recording project. Independently maintained in t
 
 Android USB Host is used only for USB permission and device FD acquisition. A native JNI bridge opens that FD using libusb and nExtCamera/libuac, receives isochronous PCM data, and stores it using a bounded native queue/writer thread. It does NOT use Android AudioRecord, AAudio, phone microphone, AGC, NS, AEC, filtering, resampling, or AAC encoding. No microphone permission, Internet, or Root is required by the application.
 
-Alpha supports **UAC1 mono 48 kHz 16-bit PCM input** only. Captures WAV using the system file picker and updates RIFF header on stop. WAV target must be seekable. App does not silently fall back to phone microphone if the USB input is lost.
+Alpha supports **UAC1 mono 48 kHz 16-bit PCM input** only. Press **Start** to begin USB capture immediately after granting USB device access. WAV is automatically stored in **Music/RadioUsbRecorder** via Android MediaStore (Android 10+); no Save As picker appears. Tap **Stop & save WAV** to finalize the RIFF header. On Android 8–9, the file is saved in the app-specific external Music directory. WAV target must be seekable. App does not silently fall back to phone microphone if the USB input is lost.
 
 ## Building
 
@@ -25,7 +25,7 @@ For local source builds, clone both dependencies into app/src/main/cpp/vendor/li
 
 1. Connect the same AB13X ADC, radio and 3.5 mm cable verified to be working on Windows.
 2. Disable receiver squelch to generate continuous FM noise.
-3. Grant USB access explicitly; save WAV. Verify PCM byte count increases, recent dBFS peak updates, and dropped packets stay zero.
+3. Tap Start, grant USB access if prompted, and confirm it immediately records without showing a file picker. WAV is automatically created in Music/RadioUsbRecorder. Verify PCM byte count increases, recent dBFS peak updates, and dropped packets stay zero.
 4. Keep recording for at least 5 minutes, especially across the previously observed ~3:54 timepoint.
 5. Stop; verify RIFF header, listen for gating and compare with a WAV from Windows and the original HarmonyOS voice recorder.
 
