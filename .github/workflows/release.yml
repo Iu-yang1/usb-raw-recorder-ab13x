@@ -81,6 +81,8 @@ jobs:
             --key-pass env:RELEASE_KEY_PASSWORD \
             --out "$OUTPUT" dist/aligned.apk
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$OUTPUT"
+          # Refuse silent key rotation: pin the release certificate SHA-256 digest.
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$OUTPUT" | grep -qi "5936be321795d3061a0f94f3885f82a407ef3f2a0af8bff053ce8a79505b57b3"
           "$BUILD_TOOLS/aapt" dump badging "$OUTPUT" | head -n 8
           rm -f dist/aligned.apk
           sha256sum "$OUTPUT" > "$OUTPUT.sha256"
