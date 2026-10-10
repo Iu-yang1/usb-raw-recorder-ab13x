@@ -1,5 +1,9 @@
 name: Publish signed Android Release
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/sign-v0.1.0-alpha.2.trigger'
   workflow_dispatch:
     inputs:
       version:
@@ -51,7 +55,7 @@ jobs:
           test -f app/src/main/cpp/vendor/libuac/include/libuac.h
       - name: Validate signing secrets and requested version
         env:
-          RELEASE_TAG: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.1.0-alpha.2' || inputs.version }}
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || { echo "Invalid release tag"; exit 1; }
@@ -62,7 +66,7 @@ jobs:
         run: gradle --no-daemon :app:assembleRelease --stacktrace
       - name: Sign, verify, checksum
         env:
-          RELEASE_TAG: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.1.0-alpha.2' || inputs.version }}
         run: |
           set -euo pipefail
           KEYSTORE="$RUNNER_TEMP/radio-usb-recorder.jks"
@@ -89,8 +93,8 @@ jobs:
       - name: Publish GitHub prerelease/release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.version }}
-          IS_PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.1.0-alpha.2' || inputs.version }}
+          IS_PRERELEASE: ${{ github.event_name == 'push' && 'true' || inputs.prerelease }}
         run: |
           set -euo pipefail
           opts=()
