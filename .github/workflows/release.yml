@@ -1,5 +1,10 @@
 name: Publish signed Android Release
 on:
+  # One-time, narrowly scoped release trigger because this GitHub connection cannot dispatch workflows.
+  push:
+    branches: [main]
+    paths:
+      - '.github/sign-v0.1.0-alpha.1.trigger'
   workflow_dispatch:
     inputs:
       version:
@@ -51,7 +56,7 @@ jobs:
           test -f app/src/main/cpp/vendor/libuac/include/libuac.h
       - name: Validate signing secrets and requested version
         env:
-          RELEASE_TAG: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.1.0-alpha.1' || inputs.version }}
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || { echo "Invalid release tag"; exit 1; }
@@ -62,7 +67,7 @@ jobs:
         run: gradle --no-daemon :app:assembleRelease --stacktrace
       - name: Sign, verify, checksum
         env:
-          RELEASE_TAG: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.1.0-alpha.1' || inputs.version }}
         run: |
           set -euo pipefail
           KEYSTORE="$RUNNER_TEMP/radio-usb-recorder.jks"
@@ -83,14 +88,14 @@ jobs:
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$OUTPUT"
           # Refuse silent key rotation: pin the release certificate SHA-256 digest.
           "$BUILD_TOOLS/apksigner" verify --print-certs "$OUTPUT" | grep -qi "5936be321795d3061a0f94f3885f82a407ef3f2a0af8bff053ce8a79505b57b3"
-          "$BUILD_TOOLS/aapt" dump badging "$OUTPUT" | head -n 8
+          "$BUILD_TOOLS/aapt" dump badging "$OUTPUT" | sed -n '1,8p'
           rm -f dist/aligned.apk
           sha256sum "$OUTPUT" > "$OUTPUT.sha256"
       - name: Publish GitHub prerelease/release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.version }}
-          IS_PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.1.0-alpha.1' || inputs.version }}
+          IS_PRERELEASE: ${{ github.event_name == 'push' && 'true' || inputs.prerelease }}
         run: |
           set -euo pipefail
           opts=()
