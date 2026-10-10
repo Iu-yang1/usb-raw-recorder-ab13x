@@ -1,0 +1,106 @@
+name: Publish signed Android Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag, for example v0.1.0-alpha.1'
+        required: true
+        default: 'v0.1.0-alpha.1'
+      prerelease:
+        description: 'Mark as a prerelease'
+        required: true
+        type: boolean
+        default: true
+permissions:
+  contents: write
+jobs:
+  signed-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+      RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK / NDK / CMake
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Fetch pinned libusb and libuac
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/cpp/vendor
+          git clone --quiet --filter=blob:none https://github.com/libusb/libusb.git app/src/main/cpp/vendor/libusb
+          git -C app/src/main/cpp/vendor/libusb checkout --quiet 15a7ebb4d426c5ce196684347d2b7cafad862626
+          git clone --quiet --filter=blob:none https://github.com/nExtCamera/libuac.git app/src/main/cpp/vendor/libuac
+          git -C app/src/main/cpp/vendor/libuac checkout --quiet 17a6ba0a09309a6890ec338826de43a256f89813
+          test -f app/src/main/cpp/vendor/libusb/android/config.h
+          test -f app/src/main/cpp/vendor/libuac/include/libuac.h
+      - name: Validate signing secrets and requested version
+        env:
+          RELEASE_TAG: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || { echo "Invalid release tag"; exit 1; }
+          for key in RELEASE_KEYSTORE_B64 RELEASE_KEYSTORE_PASSWORD RELEASE_KEY_PASSWORD RELEASE_KEY_ALIAS; do
+            test -n "${!key}" || { echo "Missing signing secret: $key"; exit 1; }
+          done
+      - name: Build unsigned release APK
+        run: gradle --no-daemon :app:assembleRelease --stacktrace
+      - name: Sign, verify, checksum
+        env:
+          RELEASE_TAG: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          KEYSTORE="$RUNNER_TEMP/radio-usb-recorder.jks"
+          trap 'rm -f "$KEYSTORE"' EXIT
+          printf '%s' "$RELEASE_KEYSTORE_B64" | base64 --decode > "$KEYSTORE"
+          INPUT=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$INPUT"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          mkdir -p dist
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$INPUT" dist/aligned.apk
+          OUTPUT="dist/radio-usb-recorder-$RELEASE_TAG-arm64-v8a.apk"
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$KEYSTORE" \
+            --ks-key-alias "$RELEASE_KEY_ALIAS" \
+            --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
+            --key-pass env:RELEASE_KEY_PASSWORD \
+            --out "$OUTPUT" dist/aligned.apk
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$OUTPUT"
+          "$BUILD_TOOLS/aapt" dump badging "$OUTPUT" | head -n 8
+          rm -f dist/aligned.apk
+          sha256sum "$OUTPUT" > "$OUTPUT.sha256"
+      - name: Publish GitHub prerelease/release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.version }}
+          IS_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          opts=()
+          if [[ "$IS_PRERELEASE" == "true" ]]; then opts+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" \
+            --target "$GITHUB_SHA" \
+            --title "Radio USB Recorder $RELEASE_TAG" \
+            --notes-file .github/RELEASE_NOTES.md \
+            "${opts[@]}" dist/*.apk dist/*.sha256
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: radio-usb-recorder-signed-release
+          path: |
+            dist/*.apk
+            dist/*.sha256
+          retention-days: 90
