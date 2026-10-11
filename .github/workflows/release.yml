@@ -54,6 +54,7 @@ jobs:
           set -euo pipefail
           python3 scripts/patch_libuac.py
           grep -q RADIO_USB_ISO_DIAGNOSTICS_V1 app/src/main/cpp/vendor/libuac/src/uac_streaming.cpp
+          grep -q RADIO_USB_AB13X_UAC1_INIT_V2 app/src/main/cpp/vendor/libuac/src/uac_streaming.cpp
       - name: Validate signing secrets and requested version
         env:
           RELEASE_TAG: ${{ inputs.version }}
