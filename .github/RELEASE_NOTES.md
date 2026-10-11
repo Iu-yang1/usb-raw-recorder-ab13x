@@ -1,28 +1,32 @@
-# Radio USB Recorder v0.1.0-alpha.3 — AB13X USB diagnostics
+# Radio USB Recorder v0.1.0-alpha.4 — UAC1 EPIPE startup compatibility
 
 ## 中文
 
-这是为华为鸿蒙 4 / AB13X（VID:PID 001F:0B21）提供的**诊断测试版**，不是已经完成实机兼容性修复的声明。
+针对华为 HarmonyOS 4 上 AB13X USB Audio（VID:PID 001F:0B21）在启动时出现
+`No ISO transfers submitted / LIBUSB_ERROR_IO(errno=32)` 的兼容性修复。
 
-- 修复 USB 授权回调的设备身份校验，重新获取当前 USB 设备对象，减少连接变化造成的状态陈旧。
-- 记录授权、`openDevice()`、JNI 初始化及 USB 断开事件。
-- 新增 **COPY USB DIAGNOSTICS**，一键复制带时间戳的本地启动日志。
-- 将固定版本 libuac 的 `No transfers submitted!` 扩展成具体的 Isochronous 提交结果：返回码、最佳努力获取的 errno、端点/interface/alternate setting 和缓冲分配失败计数。
-- 继续使用 **libusb + libuac** 直接采集 PCM，不使用 AudioRecord、系统降噪或内置麦克风回退。
-- `versionCode=3`，复用原签名证书，可升级安装 alpha.2。
-- 若关闭 Android 开发者选项中的 USB 自动音频路由仍失败，请在 Start 失败后点击 **COPY USB DIAGNOSTICS**，发送复制的全文，用于定位 USBFS 等时 URB 提交失败。
-- 编译/签名检查通过不代表鸿蒙实机录音已验证。
+- 与 Linux `snd-usb-audio` 的 UAC1 初始化顺序对齐：**先启用 AudioStreaming Alternate Setting 1，再通过 SET_CUR 设置 48 kHz 采样率**。旧实现顺序相反。
+- 使用标准 GET_INTERFACE 回读核对接口 2 的 Alternate Setting，必要时重新设置。
+- 当首个 USBFS Isochronous URB 因 EPIPE 失败时，只针对 AB13X 进行一次受控 Alt 0 → Alt 1 恢复与重新设置采样率，避免连续发送八次相同的失败 URB。
+- 修复停止流的次序：先等待已取消的 URB 全部完成回收，再切换 Alt 0；限制 UAC 控制传输超时。
+- 保留 alpha.3 的 USB 诊断、原始 PCM/WAV、签名证书与 USB 声卡独占采集路线；**不使用 AudioRecord、NS、AGC、AEC、压缩或手机内置麦克风回退**。
+- versionCode 4，可覆盖安装 alpha.3。
+- 自动 CI 构建/签名/静态回归检查不等于已实机验证。鸿蒙设备是否允许等时 URB 仍取决于 USBFS 和主机控制器；不能保证所有机型都能实现无 Root 采集。
 
 ## English
 
-This is a **diagnostic prerelease** for the Huawei HarmonyOS 4 / AB13X USB ADC (VID:PID 001F:0B21), **not** a claim of proven device compatibility.
+Compatibility fix for USBFS `EPIPE` / zero submitted isochronous transfers with
+AB13X UAC1 on Huawei HarmonyOS 4.
 
-- Match USB permission callbacks to the requested device and re-resolve the currently enumerated device.
-- Preserve timestamps and failures for Android USB Host open, JNI/UAC startup and USB disconnects; add **COPY USB DIAGNOSTICS**.
-- Instrument the pinned libuac ISO submission loop with all eight transfer results, best-effort errno, interface/alternate setting/endpoint details, and allocation failure counts.
-- Preserve raw libusb/libuac capture, with no AudioRecord/AGC/NS/AEC/microphone fallback.
-- Version code 3 reuses the established release signing certificate for upgrades from alpha.2.
-- After any Start failure, copy and share the diagnostic report so we can diagnose USBFS submit behavior instead of guessing.
-- Signed cloud build success is distinct from on-device recording acceptance.
-
-See [USB diagnostics](docs/USB-DIAGNOSTICS.md) in the repository.
+- Match Linux snd-usb-audio UAC1 ordering: enable the streaming alternate setting
+  **before** setting sample rate via endpoint SET_CUR.
+- Read back the selected interface with GET_INTERFACE; retry setting a mismatched alt.
+- On the first AB13X ISO submit failure with EPIPE, perform **one bounded** alt0/alt1
+  reinitialization and rate-setting attempt, rather than submitting eight identical
+  failing URBs.
+- During Stop, reap canceled URBs before resetting alt0. Give control transfers
+  bounded timeouts.
+- Retain direct native libusb/libuac PCM/WAV, the alpha.3 diagnostics, and the original
+  release signing certificate. No Android AudioRecord or microphone fallback.
+- Version code 4 supports in-place upgrade.
+- Build/signature checks are **not** proof of recording acceptance on HarmonyOS 4.
