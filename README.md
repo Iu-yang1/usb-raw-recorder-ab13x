@@ -10,17 +10,6 @@ Alpha supports **UAC1 mono 48 kHz 16-bit PCM input** only. Press **Start** to be
 
 ## Building
 
-Source dependency versions are pinned by commit and cloned via GitHub Actions:
-
-- libusb v1.0.29 (15a7ebb4d426c5ce196684347d2b7cafad862626): LGPL-2.1-or-later
-- nExtCamera/libuac (17a6ba0a09309a6890ec338826de43a256f89813): Apache-2.0
-
-Workflows: .github/workflows/build.yml and .github/workflows/release.yml
-
-JDK 17, Android SDK 35, Gradle 8.9, NDK 27.2.12479018, CMake 3.22.1. An Android arm64 debug APK is attached as a GitHub Actions artifact when the build passes. Stable signed release APKs require repository owner-provided GitHub Actions signing secrets; no keystore should be committed.
-
-For local source builds, clone both dependencies into app/src/main/cpp/vendor/libusb and app/src/main/cpp/vendor/libuac and run Gradle assembleDebug in this folder.
-
 ## Huawei HarmonyOS 4 / AB13X acceptance
 
 1. Connect the same AB13X ADC, radio and 3.5 mm cable verified to be working on Windows.
