@@ -1,21 +1,28 @@
-# Radio USB Recorder v0.1.0-alpha.2 — Start / Stop UX fix
-
-## English
-
-- Fix: Start no longer opens the Android Save As document picker; recording begins immediately after USB device authorization.
-- Automatically save raw USB WAV recordings to Music/RadioUsbRecorder using MediaStore on Android 10+ (app-specific Music directory on older Android).
-- Stop finalizes the WAV header and makes the recording visible in the media library; Share last WAV is available on Android 10+.
-- Show explicit recording status, PCM byte count, peak, drop count, USB errors and saved location.
-- Stop after five seconds without incoming USB PCM, reporting the device compatibility problem rather than falling back to the internal microphone.
-- Upgrade versionCode to 2 so this signed APK replaces alpha.1. On-device AB13X compatibility remains unverified.
-- Verification: GitHub Actions compiles arm64 Kotlin + native libusb/libuac. The signed APK is checked with apksigner against the pinned SHA-256 certificate fingerprint; checksum is attached.
+# Radio USB Recorder v0.1.0-alpha.3 — AB13X USB diagnostics
 
 ## 中文
 
-- 修复：Start 不再打开系统“另存为”对话框，完成 USB 授权后立即开始录音。
-- 自动把 USB 原始 WAV 保存至 Music/RadioUsbRecorder；Android 10+ 使用 MediaStore，旧版 Android 使用应用专属 Music 目录。
-- Stop 完成 WAV 文件头并使录音出现在系统媒体库；Android 10+ 支持“分享上次录音”。
-- 显示录制状态、PCM 字节数、峰值、丢包、USB 错误和文件位置。
-- 如果五秒内未收到 USB PCM，则停止并报告兼容性异常，不回退手机内置麦克风。
-- versionCode 升至 2，可覆盖安装 alpha.1；鸿蒙 4 上的 AB13X 实机兼容性仍未验证。
-- 验证：GitHub Actions 编译 arm64 Kotlin + 原生 libusb/libuac；通过 apksigner 按固定证书 SHA-256 指纹验证签名，并附文件校验值。
+这是为华为鸿蒙 4 / AB13X（VID:PID 001F:0B21）提供的**诊断测试版**，不是已经完成实机兼容性修复的声明。
+
+- 修复 USB 授权回调的设备身份校验，重新获取当前 USB 设备对象，减少连接变化造成的状态陈旧。
+- 记录授权、`openDevice()`、JNI 初始化及 USB 断开事件。
+- 新增 **COPY USB DIAGNOSTICS**，一键复制带时间戳的本地启动日志。
+- 将固定版本 libuac 的 `No transfers submitted!` 扩展成具体的 Isochronous 提交结果：返回码、最佳努力获取的 errno、端点/interface/alternate setting 和缓冲分配失败计数。
+- 继续使用 **libusb + libuac** 直接采集 PCM，不使用 AudioRecord、系统降噪或内置麦克风回退。
+- `versionCode=3`，复用原签名证书，可升级安装 alpha.2。
+- 若关闭 Android 开发者选项中的 USB 自动音频路由仍失败，请在 Start 失败后点击 **COPY USB DIAGNOSTICS**，发送复制的全文，用于定位 USBFS 等时 URB 提交失败。
+- 编译/签名检查通过不代表鸿蒙实机录音已验证。
+
+## English
+
+This is a **diagnostic prerelease** for the Huawei HarmonyOS 4 / AB13X USB ADC (VID:PID 001F:0B21), **not** a claim of proven device compatibility.
+
+- Match USB permission callbacks to the requested device and re-resolve the currently enumerated device.
+- Preserve timestamps and failures for Android USB Host open, JNI/UAC startup and USB disconnects; add **COPY USB DIAGNOSTICS**.
+- Instrument the pinned libuac ISO submission loop with all eight transfer results, best-effort errno, interface/alternate setting/endpoint details, and allocation failure counts.
+- Preserve raw libusb/libuac capture, with no AudioRecord/AGC/NS/AEC/microphone fallback.
+- Version code 3 reuses the established release signing certificate for upgrades from alpha.2.
+- After any Start failure, copy and share the diagnostic report so we can diagnose USBFS submit behavior instead of guessing.
+- Signed cloud build success is distinct from on-device recording acceptance.
+
+See [USB diagnostics](docs/USB-DIAGNOSTICS.md) in the repository.
