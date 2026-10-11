@@ -244,7 +244,7 @@ class MainActivity : Activity() {
     }
 
     private fun diagnosticReport(): String =
-        "Radio USB Recorder USB diagnostic build (alpha.2 baseline)\n" +
+        "Radio USB Recorder v0.1.0-alpha.3 USB diagnostic build\n" +
             "Android SDK: ${Build.VERSION.SDK_INT}\n" +
             "Device: ${Build.MANUFACTURER} ${Build.MODEL}\n" +
             "Selected USB: ${device?.deviceName ?: "none"}\n" +
