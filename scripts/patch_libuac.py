@@ -233,10 +233,11 @@ replace_unique(
     void uac_stream_handle_impl::set_sampling_rate""",
     "stop reset after URB drain",
 )
-replace_unique(
-    '            0 /* timeout */);',
-    '            1000 /* timeout: do not hang indefinitely on failed USB device */);',
-    "set_sampling_freq timeout",
-)
+# Both SET_CUR and GET_CUR use the same zero-timeout call in pinned libuac.
+old_timeout = '            0 /* timeout */);'
+if text.count(old_timeout) != 2:
+    raise SystemExit("Unexpected UAC1 sample-rate control timeout anchors")
+text = text.replace(old_timeout,
+    '            1000 /* timeout: avoid an indefinite wait on a detached device */);')
 source.write_text(text, encoding="utf-8")
 print("Applied AB13X UAC1 altsetting-first, GET_INTERFACE and bounded EPIPE recovery patch")
