@@ -84,7 +84,7 @@ class MainActivity : Activity() {
                             "hasPermission=${fresh?.let(usbManager::hasPermission)}"
                     )
                     if (!granted || expectedName == null ||
-                        authorizedDevice?.deviceName != expectedName ||
+                        (authorizedDevice != null && authorizedDevice.deviceName != expectedName) ||
                         fresh == null || !usbManager.hasPermission(fresh)
                     ) {
                         refreshDevice()
