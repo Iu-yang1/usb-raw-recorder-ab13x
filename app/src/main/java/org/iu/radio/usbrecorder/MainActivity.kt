@@ -2,6 +2,8 @@ package org.iu.radio.usbrecorder
 
 import android.app.Activity
 import android.app.PendingIntent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.BroadcastReceiver
 import android.content.ContentValues
 import android.content.Context
@@ -19,6 +21,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.util.Log
 import android.provider.MediaStore
 import android.view.Gravity
 import android.view.ViewGroup
@@ -50,6 +53,9 @@ class MainActivity : Activity() {
     private lateinit var recordButton: Button
     private lateinit var stopButton: Button
     private lateinit var shareButton: Button
+    private lateinit var diagnosticsView: TextView
+    private val diagnostics = ArrayDeque<String>()
+    private var pendingDeviceName: String? = null
     private var device: UsbDevice? = null
     private var connection: UsbDeviceConnection? = null
     private var recording = false
@@ -62,11 +68,43 @@ class MainActivity : Activity() {
 
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action != permissionAction) return
-            if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                beginRecording()
-            } else {
-                showMessage("USB permission denied. Never falling back to the phone microphone.")
+            when (intent?.action) {
+                permissionAction -> {
+                    @Suppress("DEPRECATION")
+                    val authorizedDevice = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
+                    val expectedName = pendingDeviceName
+                    pendingDeviceName = null
+                    val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                    val fresh = usbManager.deviceList.values.firstOrNull {
+                        it.deviceName == expectedName
+                    }
+                    addDiagnostic(
+                        "Authorization callback: granted=$granted expected=$expectedName " +
+                            "returned=${authorizedDevice?.deviceName} present=${fresh != null} " +
+                            "hasPermission=${fresh?.let(usbManager::hasPermission)}"
+                    )
+                    if (!granted || expectedName == null ||
+                        (authorizedDevice != null && authorizedDevice.deviceName != expectedName) ||
+                        fresh == null || !usbManager.hasPermission(fresh)
+                    ) {
+                        refreshDevice()
+                        showMessage("USB authorization failed or device changed. Refresh and try again.")
+                        return
+                    }
+                    device = fresh
+                    beginRecording()
+                }
+                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                    @Suppress("DEPRECATION")
+                    val removed = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
+                    addDiagnostic("USB detached: ${removed?.deviceName}")
+                    if (removed != null && removed.deviceName == device?.deviceName) {
+                        if (recording) stopRecording("USB device disconnected.")
+                        device = null
+                        pendingDeviceName = null
+                        refreshDevice()
+                    }
+                }
             }
         }
     }
@@ -111,15 +149,18 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         usbManager = getSystemService(USB_SERVICE) as UsbManager
-        val filter = IntentFilter(permissionAction)
+        buildUi()
+        val filter = IntentFilter(permissionAction).apply {
+            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        }
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(permissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("DEPRECATION")
             registerReceiver(permissionReceiver, filter)
         }
-        buildUi()
         refreshDevice()
+        addDiagnostic("App initialized: SDK=${Build.VERSION.SDK_INT}, manufacturer=${Build.MANUFACTURER}, model=${Build.MODEL}")
         handler.post(ticker)
     }
 
@@ -163,6 +204,22 @@ class MainActivity : Activity() {
         layout.addView(shareButton)
         metrics = label("Idle. Tap Start to record immediately.", 15f)
         layout.addView(metrics)
+        layout.addView(label("USB diagnostics (copy this text after a failure)", 15f))
+        val copyButton = Button(this).apply {
+            text = "COPY USB DIAGNOSTICS"
+            setOnClickListener {
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText(
+                    "Radio USB Recorder diagnostics", diagnosticReport()
+                ))
+                addDiagnostic("Diagnostic report copied")
+            }
+        }
+        layout.addView(copyButton)
+        diagnosticsView = label("No USB diagnostic events yet.", 12f).apply {
+            setTextIsSelectable(true)
+        }
+        layout.addView(diagnosticsView)
         layout.addView(label(
             "Auto-save: Music/RadioUsbRecorder (Android 10+).\n" +
                 "Only the first USB AudioStreaming input is selected in this alpha. " +
@@ -177,6 +234,24 @@ class MainActivity : Activity() {
         setContentView(scroll)
     }
 
+    private fun addDiagnostic(message: String) {
+        val timestamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+        val line = "$timestamp  $message"
+        Log.i("RadioUsbRecorder", line)
+        if (diagnostics.size >= 60) diagnostics.removeFirst()
+        diagnostics.addLast(line)
+        diagnosticsView.text = diagnostics.joinToString("\n")
+    }
+
+    private fun diagnosticReport(): String =
+        "Radio USB Recorder v0.1.0-alpha.3 USB diagnostic build\n" +
+            "Android SDK: ${Build.VERSION.SDK_INT}\n" +
+            "Device: ${Build.MANUFACTURER} ${Build.MODEL}\n" +
+            "Selected USB: ${device?.deviceName ?: "none"}\n" +
+            "VID:PID: ${device?.let { "%04X:%04X".format(Locale.US, it.vendorId, it.productId) } ?: "none"}\n" +
+            "Permission: ${device?.let(usbManager::hasPermission)}\n" +
+            "Events:\n" + diagnostics.joinToString("\n")
+
     private fun hasAudioStreaming(candidate: UsbDevice): Boolean =
         (0 until candidate.interfaceCount).any { i ->
             val item = candidate.getInterface(i)
@@ -188,6 +263,9 @@ class MainActivity : Activity() {
         val available = usbManager.deviceList.values.filter(::hasAudioStreaming)
         device = available.firstOrNull()
         val selected = device
+        addDiagnostic("USB scan: ${available.size} AudioStreaming device(s); selected=${selected?.deviceName}, " +
+            "VID:PID=${selected?.let { "%04X:%04X".format(Locale.US, it.vendorId, it.productId) }}, " +
+            "permission=${selected?.let(usbManager::hasPermission)}")
         info.text = if (selected == null) {
             "USB AudioStreaming device not detected. Connect the AB13X using USB OTG."
         } else {
@@ -200,12 +278,24 @@ class MainActivity : Activity() {
     }
 
     private fun requestRecording() {
+        if (recording || pendingDeviceName != null) return
         val selected = device ?: run {
             showMessage("No USB AudioStreaming input.")
             return
         }
-        if (recording) return
-        if (usbManager.hasPermission(selected)) {
+        val fresh = usbManager.deviceList.values.firstOrNull {
+            it.deviceName == selected.deviceName
+        }
+        if (fresh == null) {
+            addDiagnostic("Start rejected: selected USB device no longer enumerated")
+            refreshDevice()
+            showMessage("USB device disconnected or re-enumerated. Refresh and retry.")
+            return
+        }
+        device = fresh
+        val authorized = usbManager.hasPermission(fresh)
+        addDiagnostic("Start request: device=${fresh.deviceName}, authorized=$authorized")
+        if (authorized) {
             beginRecording()
             return
         }
@@ -214,8 +304,15 @@ class MainActivity : Activity() {
         val intent = PendingIntent.getBroadcast(
             this, 0, Intent(permissionAction).setPackage(packageName), flags
         )
+        pendingDeviceName = fresh.deviceName
         showMessage("Waiting for USB device authorization…")
-        usbManager.requestPermission(selected, intent)
+        try {
+            usbManager.requestPermission(fresh, intent)
+        } catch (e: Exception) {
+            pendingDeviceName = null
+            addDiagnostic("requestPermission failed: ${e.javaClass.simpleName}: ${e.message}")
+            showMessage("USB authorization request failed: ${e.message}")
+        }
     }
 
     private fun filename() = "radio-usb-" +
@@ -265,22 +362,38 @@ class MainActivity : Activity() {
 
     private fun beginRecording() {
         if (recording) return
-        val selected = device ?: return
+        val previous = device ?: return
+        val selected = usbManager.deviceList.values.firstOrNull { it.deviceName == previous.deviceName }
+        if (selected == null) {
+            addDiagnostic("Open rejected: device disappeared before openDevice")
+            refreshDevice()
+            showMessage("USB device disappeared; reconnect and retry.")
+            return
+        }
+        device = selected
         if (!usbManager.hasPermission(selected)) {
+            addDiagnostic("Open rejected: USB permission no longer valid for ${selected.deviceName}")
             showMessage("USB permission lost. Press Start to authorize the device again.")
             return
         }
+        addDiagnostic("Opening: ${selected.deviceName}, permission=${usbManager.hasPermission(selected)}")
         showMessage("Opening USB microphone and preparing WAV…")
         var outputFd: Int? = null
         try {
             connection = usbManager.openDevice(selected)
                 ?: throw IllegalStateException("UsbManager.openDevice() returned null")
+            addDiagnostic("UsbManager.openDevice: OK, fd=${connection!!.fileDescriptor}")
             outputFd = createWavOutput()
+            addDiagnostic("WAV output ready: $outputLabel")
             val ownedFd = outputFd ?: throw IllegalStateException("Output FD missing")
             // JNI consumes/owns wavFd even when it returns a startup error.
             outputFd = null
             val error = NativeRecorder.start(connection!!.fileDescriptor, ownedFd, 48_000)
-            if (error != null) throw IllegalStateException(error)
+            if (error != null) {
+                addDiagnostic("JNI start FAILED: $error")
+                throw IllegalStateException(error)
+            }
+            addDiagnostic("JNI start: streaming initialized")
             recording = true
             startedAt = SystemClock.elapsedRealtime()
             deviceButton.isEnabled = false
@@ -290,6 +403,9 @@ class MainActivity : Activity() {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             showMessage("RECORDING from AB13X/USB input\n" + outputLabel)
         } catch (e: Exception) {
+            addDiagnostic("Start FAILED: ${e.javaClass.simpleName}: ${e.message}; " +
+                "USB present=${usbManager.deviceList.containsKey(selected.deviceName)}, " +
+                "permission=${usbManager.hasPermission(selected)}")
             outputFd?.let { ParcelFileDescriptor.adoptFd(it).close() }
             connection?.close()
             connection = null
@@ -330,6 +446,7 @@ class MainActivity : Activity() {
         val fileLocation = outputLabel
         var stopError: String? = null
         try {
+            addDiagnostic("Stop requested: ${problem ?: "normal"}")
             stopError = NativeRecorder.stop()
         } catch (e: Exception) {
             stopError = e.message ?: e.javaClass.simpleName
@@ -343,6 +460,7 @@ class MainActivity : Activity() {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         try {
+            addDiagnostic("Stop result: ${stopError ?: "WAV finalized"}; file=$fileLocation")
             finishOutput()
             shareButton.isEnabled = lastRecording != null
             val status = when {

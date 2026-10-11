@@ -1,5 +1,10 @@
 name: Publish signed Android Release
 on:
+  # One-time signed alpha.3 launch; removed after successful publishing.
+  push:
+    branches: [main]
+    paths:
+      - '.github/release-alpha3.trigger'
   workflow_dispatch:
     inputs:
       version:
@@ -49,9 +54,14 @@ jobs:
           git -C app/src/main/cpp/vendor/libuac checkout --quiet 17a6ba0a09309a6890ec338826de43a256f89813
           test -f app/src/main/cpp/vendor/libusb/android/config.h
           test -f app/src/main/cpp/vendor/libuac/include/libuac.h
+      - name: Instrument pinned libuac USB Isochronous failures
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_libuac.py
+          grep -q RADIO_USB_ISO_DIAGNOSTICS_V1 app/src/main/cpp/vendor/libuac/src/uac_streaming.cpp
       - name: Validate signing secrets and requested version
         env:
-          RELEASE_TAG: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.1.0-alpha.3' || inputs.version }}
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || { echo "Invalid release tag"; exit 1; }
@@ -62,7 +72,7 @@ jobs:
         run: gradle --no-daemon :app:assembleRelease --stacktrace
       - name: Sign, verify, checksum
         env:
-          RELEASE_TAG: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.1.0-alpha.3' || inputs.version }}
         run: |
           set -euo pipefail
           KEYSTORE="$RUNNER_TEMP/radio-usb-recorder.jks"
@@ -89,8 +99,8 @@ jobs:
       - name: Publish GitHub prerelease/release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.version }}
-          IS_PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.1.0-alpha.3' || inputs.version }}
+          IS_PRERELEASE: ${{ github.event_name == 'push' && 'true' || inputs.prerelease }}
         run: |
           set -euo pipefail
           opts=()

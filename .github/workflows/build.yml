@@ -37,6 +37,11 @@ jobs:
           git -C app/src/main/cpp/vendor/libuac checkout --quiet 17a6ba0a09309a6890ec338826de43a256f89813
           test -f app/src/main/cpp/vendor/libusb/android/config.h
           test -f app/src/main/cpp/vendor/libuac/include/libuac.h
+      - name: Instrument pinned libuac USB Isochronous failures
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_libuac.py
+          grep -q RADIO_USB_ISO_DIAGNOSTICS_V1 app/src/main/cpp/vendor/libuac/src/uac_streaming.cpp
       - name: Verify start-to-record regression
         run: |
           set -euo pipefail
